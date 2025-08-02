@@ -196,13 +196,11 @@ function ClientView() {
   const getAvailableSlotsForDate = () => {
     if (!selectedDate) return []
     const daySlots = availableSlots[selectedDate]
-    if (!daySlots) return []
+    if (!daySlots || !daySlots.unified) return []
     
     const allSlots: (RideSlot & { card_type: CardType })[] = []
-    Object.values(daySlots).forEach(cardTypeSlots => {
-      cardTypeSlots.slots.forEach(slot => {
-        allSlots.push({ ...slot, card_type: cardTypeSlots.card_type })
-      })
+    daySlots.unified.slots.forEach(slot => {
+      allSlots.push({ ...slot, card_type: daySlots.unified.card_type })
     })
     
     return allSlots.sort((a, b) => a.start_time.localeCompare(b.start_time))

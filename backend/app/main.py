@@ -77,36 +77,113 @@ bookings_db = []
 
 from datetime import timedelta
 
-def generate_ride_slots():
+class OpeningHours(BaseModel):
+    weekday: int
+    start_time: time
+    end_time: time
+    is_closed: bool = False
+
+class Holiday(BaseModel):
+    id: str
+    date: date
+    name: str
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    is_closed: bool = True
+
+class BookingSettings(BaseModel):
+    interval_minutes: int = 30
+    max_booking_duration_minutes: int = 60
+    advance_booking_days: int = 30
+    max_cards_per_slot: int = 8
+
+opening_hours_db = [
+    OpeningHours(weekday=0, start_time=time(9, 0), end_time=time(17, 0)),  # Monday
+    OpeningHours(weekday=1, start_time=time(9, 0), end_time=time(17, 0)),  # Tuesday
+    OpeningHours(weekday=2, start_time=time(9, 0), end_time=time(17, 0)),  # Wednesday
+    OpeningHours(weekday=3, start_time=time(9, 0), end_time=time(17, 0)),  # Thursday
+    OpeningHours(weekday=4, start_time=time(9, 0), end_time=time(17, 0)),  # Friday
+    OpeningHours(weekday=5, start_time=time(10, 0), end_time=time(16, 0), is_closed=True),  # Saturday - CLOSED
+    OpeningHours(weekday=6, start_time=time(10, 0), end_time=time(16, 0), is_closed=False),  # Sunday - OPEN
+]
+
+holidays_db = []
+booking_settings_db = BookingSettings()
+
+def generate_ride_slots_dynamic():
+    """Generate ride slots based on current opening hours, holidays, and booking settings"""
     slots = []
     start_date = date.today()
     
-    for day_offset in range(30):
+    for day_offset in range(booking_settings_db.advance_booking_days):
         current_date = start_date + timedelta(days=day_offset)
+        weekday = current_date.weekday()
         
-        if current_date.weekday() >= 5:
+        opening_hours = next((h for h in opening_hours_db if h.weekday == weekday), None)
+        if not opening_hours or opening_hours.is_closed:
             continue
             
-        for card_type in card_types_db:
-            for hour in range(9, 17):
-                for minute in [0, 30]:
-                    start_time = time(hour, minute)
-                    end_time = time(hour, minute + card_type.duration_minutes)
-                    
-                    slot = RideSlot(
-                        id=str(uuid.uuid4()),
-                        card_type_id=card_type.id,
-                        date=current_date,
-                        start_time=start_time,
-                        end_time=end_time,
-                        total_capacity=8,
-                        available_capacity=8
-                    )
-                    slots.append(slot)
+        holiday = next((h for h in holidays_db if h.date == current_date), None)
+        if holiday and holiday.is_closed:
+            continue
+            
+        if holiday and not holiday.is_closed:
+            day_start = holiday.start_time or opening_hours.start_time
+            day_end = holiday.end_time or opening_hours.end_time
+        else:
+            day_start = opening_hours.start_time
+            day_end = opening_hours.end_time
+            
+        current_time = datetime.combine(current_date, day_start)
+        end_time = datetime.combine(current_date, day_end)
+        interval_delta = timedelta(minutes=booking_settings_db.interval_minutes)
+        
+        while current_time < end_time:
+            slot_start = current_time.time()
+            slot_end_time = current_time + interval_delta
+            
+            if slot_end_time.time() > day_end:
+                current_time += interval_delta
+                continue
+                
+            slot = RideSlot(
+                id=str(uuid.uuid4()),
+                card_type_id="",
+                date=current_date,
+                start_time=slot_start,
+                end_time=slot_end_time.time(),
+                total_capacity=booking_settings_db.max_cards_per_slot,
+                available_capacity=booking_settings_db.max_cards_per_slot
+            )
+            slots.append(slot)
+                
+            current_time += interval_delta
     
     return slots
 
-ride_slots_db = generate_ride_slots()
+ride_slots_db = []
+
+def refresh_ride_slots():
+    """Refresh ride slots based on current settings"""
+    global ride_slots_db
+    
+    existing_bookings = {}
+    for slot in ride_slots_db:
+        if slot.available_capacity < slot.total_capacity:
+            key = (slot.date, slot.start_time)
+            existing_bookings[key] = slot.total_capacity - slot.available_capacity
+    
+    new_slots = generate_ride_slots_dynamic()
+    
+    for slot in new_slots:
+        key = (slot.date, slot.start_time)
+        if key in existing_bookings:
+            booked_count = existing_bookings[key]
+            slot.available_capacity = max(0, slot.total_capacity - booked_count)
+    
+    ride_slots_db = new_slots
+
+refresh_ride_slots()
 
 @app.get("/healthz")
 async def healthz():
@@ -120,9 +197,6 @@ async def get_card_types():
 async def get_available_ride_slots(card_type_id: Optional[str] = None, date_from: Optional[date] = None):
     slots = [slot for slot in ride_slots_db if slot.available_capacity > 0]
     
-    if card_type_id:
-        slots = [slot for slot in slots if slot.card_type_id == card_type_id]
-    
     if date_from:
         slots = [slot for slot in slots if slot.date >= date_from]
     
@@ -130,16 +204,14 @@ async def get_available_ride_slots(card_type_id: Optional[str] = None, date_from
     for slot in slots:
         date_str = slot.date.isoformat()
         if date_str not in result:
-            result[date_str] = {}
-        
-        if slot.card_type_id not in result[date_str]:
-            card_type = next(c for c in card_types_db if c.id == slot.card_type_id)
-            result[date_str][slot.card_type_id] = {
-                "card_type": card_type,
-                "slots": []
+            result[date_str] = {
+                "unified": {
+                    "card_type": {"id": "", "name": "All Types", "description": "Supports all card types", "price": 0, "duration_minutes": 0},
+                    "slots": []
+                }
             }
         
-        result[date_str][slot.card_type_id]["slots"].append({
+        result[date_str]["unified"]["slots"].append({
             "id": slot.id,
             "start_time": slot.start_time.strftime("%H:%M"),
             "end_time": slot.end_time.strftime("%H:%M"),
@@ -262,39 +334,6 @@ async def get_all_bookings():
     
     return sorted(bookings_with_details, key=lambda x: x["date"], reverse=True)
 
-class OpeningHours(BaseModel):
-    weekday: int
-    start_time: time
-    end_time: time
-    is_closed: bool = False
-
-class Holiday(BaseModel):
-    id: str
-    date: date
-    name: str
-    start_time: Optional[time] = None
-    end_time: Optional[time] = None
-    is_closed: bool = True
-
-class BookingSettings(BaseModel):
-    interval_minutes: int = 30
-    max_booking_duration_minutes: int = 60
-    advance_booking_days: int = 30
-    max_cards_per_slot: int = 8
-
-opening_hours_db = [
-    OpeningHours(weekday=0, start_time=time(9, 0), end_time=time(17, 0)),
-    OpeningHours(weekday=1, start_time=time(9, 0), end_time=time(17, 0)),
-    OpeningHours(weekday=2, start_time=time(9, 0), end_time=time(17, 0)),
-    OpeningHours(weekday=3, start_time=time(9, 0), end_time=time(17, 0)),
-    OpeningHours(weekday=4, start_time=time(9, 0), end_time=time(17, 0)),
-    OpeningHours(weekday=5, start_time=time(10, 0), end_time=time(16, 0), is_closed=False),
-    OpeningHours(weekday=6, start_time=time(10, 0), end_time=time(16, 0), is_closed=True),
-]
-
-holidays_db = []
-booking_settings_db = BookingSettings()
-
 @app.get("/admin/opening-hours")
 async def get_opening_hours():
     return opening_hours_db
@@ -305,6 +344,8 @@ async def update_opening_hours(weekday: int, hours: OpeningHours):
         if h.weekday == weekday:
             opening_hours_db[i] = hours
             break
+    
+    refresh_ride_slots()
     return {"message": "Lahtiolekuajad uuendatud"}
 
 @app.get("/admin/holidays")
@@ -315,11 +356,15 @@ async def get_holidays():
 async def create_holiday(holiday: Holiday):
     holiday.id = str(uuid.uuid4())
     holidays_db.append(holiday)
+    
+    refresh_ride_slots()
     return {"message": "Puhkepäev lisatud", "holiday": holiday}
 
 @app.delete("/admin/holidays/{holiday_id}")
 async def delete_holiday(holiday_id: str):
     holidays_db[:] = [h for h in holidays_db if h.id != holiday_id]
+    
+    refresh_ride_slots()
     return {"message": "Puhkepäev kustutatud"}
 
 @app.get("/admin/booking-settings")
@@ -330,4 +375,6 @@ async def get_booking_settings():
 async def update_booking_settings(settings: BookingSettings):
     global booking_settings_db
     booking_settings_db = settings
+    
+    refresh_ride_slots()
     return {"message": "Broneerimise seaded uuendatud", "settings": settings}
