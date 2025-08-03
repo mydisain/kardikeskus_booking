@@ -538,13 +538,118 @@ function AdminSidebar() {
   )
 }
 
+function AdminTimeSlotView() {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [availableSlots, setAvailableSlots] = useState<any>({})
+  const [bookings, setBookings] = useState<any[]>([])
+
+  useEffect(() => {
+    fetchAvailableSlots()
+    fetchBookings()
+  }, [selectedDate])
+
+  const fetchAvailableSlots = async () => {
+    try {
+      const response = await fetch(`${API_URL}/ride-slots`)
+      const data = await response.json()
+      setAvailableSlots(data)
+    } catch (error) {
+      console.error('Error fetching available slots:', error)
+    }
+  }
+
+  const fetchBookings = async () => {
+    try {
+      const response = await fetch(`${API_URL}/admin/bookings`)
+      const data = await response.json()
+      setBookings(data)
+    } catch (error) {
+      console.error('Error fetching bookings:', error)
+    }
+  }
+
+  const getAvailableSlotsForDate = () => {
+    if (!availableSlots[selectedDate]) return []
+    return availableSlots[selectedDate].unified?.slots || []
+  }
+
+  const getBookingsForSlot = (slotId: string) => {
+    return bookings.filter(booking => 
+      booking.selected_rides && Array.isArray(booking.selected_rides) && 
+      booking.selected_rides.some((ride: any) => ride.slot_id === slotId)
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <Calendar className="h-5 w-5 mr-2" />
+          Ajaühikute Ülevaade
+        </CardTitle>
+        <CardDescription>
+          Vaata broneeringuid ja vabad ajad
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <Label htmlFor="admin-date">Kuupäev</Label>
+          <Input
+            id="admin-date"
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="w-full max-w-xs"
+          />
+        </div>
+
+        {selectedDate && (
+          <div>
+            <Label>Ajaühikud</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
+              {getAvailableSlotsForDate().map((slot: any) => {
+                const hasBookings = slot.available_capacity < slot.total_capacity
+                const slotBookings = getBookingsForSlot(slot.id)
+                
+                return (
+                  <div key={slot.id} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-center">
+                      <Clock className="h-4 w-4 mr-1" />
+                      <span className="font-medium">{slot.start_time}</span>
+                    </div>
+                    <div className="text-center text-sm text-gray-600">
+                      {slot.available_capacity}/{slot.total_capacity}
+                    </div>
+                    {hasBookings && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          console.log('Show bookings for slot:', slot.id, slotBookings)
+                        }}
+                      >
+                        Broneeringud
+                      </Button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function AdminDashboard() {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Töölaud</h1>
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold mb-4">Broneeringute Ülevaade</h2>
-        <ClientView />
+        <AdminTimeSlotView />
       </div>
     </div>
   )
