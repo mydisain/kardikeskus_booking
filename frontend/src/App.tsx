@@ -545,6 +545,19 @@ function AdminTimeSlotView() {
   const [cardTypes, setCardTypes] = useState<any[]>([])
   const [selectedSlotBookings, setSelectedSlotBookings] = useState<any[]>([])
   const [isBookingDetailsModalOpen, setIsBookingDetailsModalOpen] = useState(false)
+  const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false)
+  const [selectedSlotForBooking, setSelectedSlotForBooking] = useState<any>(null)
+  const [newBookingData, setNewBookingData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    notes: ''
+  })
+  const [newBookingCardSelections, setNewBookingCardSelections] = useState<any[]>([])
+  const [isNewBookingLoading, setIsNewBookingLoading] = useState(false)
+  const [newBookingError, setNewBookingError] = useState<string | null>(null)
+  const [newBookingSuccess, setNewBookingSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAvailableSlots()
@@ -592,10 +605,92 @@ function AdminTimeSlotView() {
     const slot = slots.find((s: any) => s.id === slotId)
     if (!slot) return []
     
-    return bookings.filter(booking => 
+    return bookings.filter(booking =>
       booking.date === selectedDate && 
       booking.start_time === slot.start_time
     )
+  }
+
+  const handleNewBookingCardQuantityChange = (cardTypeId: string, quantity: number) => {
+    setNewBookingCardSelections(prev => {
+      const existing = prev.find(s => s.card_type_id === cardTypeId)
+      if (existing) {
+        if (quantity === 0) {
+          return prev.filter(s => s.card_type_id !== cardTypeId)
+        } else {
+          return prev.map(s => s.card_type_id === cardTypeId ? { ...s, quantity } : s)
+        }
+      } else {
+        return quantity > 0 ? [...prev, { card_type_id: cardTypeId, quantity }] : prev
+      }
+    })
+  }
+
+  const handleNewBookingSubmit = async () => {
+    if (!newBookingData.firstName || !newBookingData.lastName || !newBookingData.email || !newBookingData.phone) {
+      setNewBookingError('Palun täitke kõik kohustuslikud väljad')
+      return
+    }
+
+    if (newBookingCardSelections.length === 0) {
+      setNewBookingError('Palun valige vähemalt üks kart')
+      return
+    }
+
+    const totalQuantity = newBookingCardSelections.reduce((sum, selection) => sum + selection.quantity, 0)
+    if (totalQuantity > selectedSlotForBooking.available_capacity) {
+      setNewBookingError('Ei ole piisavalt vabu kohti')
+      return
+    }
+
+    setIsNewBookingLoading(true)
+    setNewBookingError(null)
+
+    try {
+      const response = await fetch(`${API_URL}/bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customer_first_name: newBookingData.firstName,
+          customer_last_name: newBookingData.lastName,
+          customer_email: newBookingData.email,
+          customer_phone: newBookingData.phone,
+          ride_slot_id: selectedSlotForBooking.id,
+          card_selections: newBookingCardSelections,
+          notes: newBookingData.notes
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Viga broneeringul')
+      }
+
+      setNewBookingSuccess('Broneering edukalt loodud!')
+      fetchAvailableSlots()
+      fetchBookings()
+      
+      setNewBookingData({
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        notes: ''
+      })
+      setNewBookingCardSelections([])
+      
+      setTimeout(() => {
+        setIsNewBookingModalOpen(false)
+        setNewBookingSuccess(null)
+      }, 2000)
+      
+    } catch (err) {
+      setNewBookingError(err instanceof Error ? err.message : 'Viga broneeringul')
+    } finally {
+      setIsNewBookingLoading(false)
+    }
   }
 
   return (
@@ -643,7 +738,7 @@ function AdminTimeSlotView() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="w-full text-xs"
+                          className="w-full text-xs mb-1"
                           onClick={() => {
                             setSelectedSlotBookings(slotBookings)
                             setIsBookingDetailsModalOpen(true)
@@ -652,6 +747,19 @@ function AdminTimeSlotView() {
                           Broneeringud
                         </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          setSelectedSlotForBooking(slot)
+                          setIsNewBookingModalOpen(true)
+                          setNewBookingError(null)
+                          setNewBookingSuccess(null)
+                        }}
+                      >
+                        Lisa uus
+                      </Button>
                     </div>
                   )
                 })}
@@ -720,6 +828,143 @@ function AdminTimeSlotView() {
                 )}
               </div>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={isNewBookingModalOpen} onOpenChange={setIsNewBookingModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Lisa uus broneering</DialogTitle>
+            <DialogDescription>
+              {selectedSlotForBooking && (
+                <>Aeg: {selectedSlotForBooking.start_time} - {selectedSlotForBooking.end_time} | Vabad kohad: {selectedSlotForBooking.available_capacity}/{selectedSlotForBooking.total_capacity}</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            <div>
+              <h4 className="font-medium mb-3">Kartide valik</h4>
+              <div className="space-y-3">
+                {cardTypes.map(cardType => (
+                  <div key={cardType.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex-1">
+                      <h5 className="font-medium">{cardType.name}</h5>
+                      <p className="text-sm text-gray-600">{cardType.description}</p>
+                      <p className="text-sm font-medium text-green-600">{cardType.price}€ / {cardType.duration_minutes} min</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const current = newBookingCardSelections.find(s => s.card_type_id === cardType.id)?.quantity || 0
+                          handleNewBookingCardQuantityChange(cardType.id, Math.max(0, current - 1))
+                        }}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <span className="w-8 text-center">
+                        {newBookingCardSelections.find(s => s.card_type_id === cardType.id)?.quantity || 0}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const current = newBookingCardSelections.find(s => s.card_type_id === cardType.id)?.quantity || 0
+                          const totalSelected = newBookingCardSelections.reduce((sum, s) => sum + s.quantity, 0)
+                          if (selectedSlotForBooking && totalSelected < selectedSlotForBooking.available_capacity) {
+                            handleNewBookingCardQuantityChange(cardType.id, current + 1)
+                          }
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-medium mb-3">Kliendi andmed</h4>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="newBookingFirstName">Eesnimi *</Label>
+                    <Input
+                      id="newBookingFirstName"
+                      value={newBookingData.firstName}
+                      onChange={(e) => setNewBookingData({...newBookingData, firstName: e.target.value})}
+                      placeholder="Eesnimi"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="newBookingLastName">Perekonnanimi *</Label>
+                    <Input
+                      id="newBookingLastName"
+                      value={newBookingData.lastName}
+                      onChange={(e) => setNewBookingData({...newBookingData, lastName: e.target.value})}
+                      placeholder="Perekonnanimi"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="newBookingEmail">E-post *</Label>
+                  <Input
+                    id="newBookingEmail"
+                    type="email"
+                    value={newBookingData.email}
+                    onChange={(e) => setNewBookingData({...newBookingData, email: e.target.value})}
+                    placeholder="email@example.com"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="newBookingPhone">Telefon *</Label>
+                  <Input
+                    id="newBookingPhone"
+                    value={newBookingData.phone}
+                    onChange={(e) => setNewBookingData({...newBookingData, phone: e.target.value})}
+                    placeholder="+372 5xxxxxxx"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="newBookingNotes">Märkused</Label>
+                  <Textarea
+                    id="newBookingNotes"
+                    value={newBookingData.notes}
+                    onChange={(e) => setNewBookingData({...newBookingData, notes: e.target.value})}
+                    placeholder="Lisainfo või märkused..."
+                    rows={3}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {newBookingError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-red-600 text-sm">{newBookingError}</p>
+              </div>
+            )}
+
+            {newBookingSuccess && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-green-600 text-sm">{newBookingSuccess}</p>
+              </div>
+            )}
+
+            <Button 
+              onClick={handleNewBookingSubmit} 
+              disabled={isNewBookingLoading}
+              className="w-full"
+              size="lg"
+            >
+              {isNewBookingLoading ? 'Loob broneeringut...' : 'Loo broneering'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
