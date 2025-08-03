@@ -567,9 +567,12 @@ function AdminTimeSlotView() {
 
   const fetchAvailableSlots = async () => {
     try {
+      console.log('Fetching available slots from:', `${API_URL}/ride-slots`)
       const response = await fetch(`${API_URL}/ride-slots`)
       const data = await response.json()
+      console.log('Available slots data:', data)
       setAvailableSlots(data)
+      console.log('Available slots state updated')
     } catch (error) {
       console.error('Error fetching available slots:', error)
     }
@@ -596,6 +599,9 @@ function AdminTimeSlotView() {
   }
 
   const getAvailableSlotsForDate = () => {
+    console.log('Getting slots for date:', selectedDate)
+    console.log('Available slots state:', availableSlots)
+    console.log('Slots for selected date:', availableSlots[selectedDate])
     if (!availableSlots[selectedDate]) return []
     return availableSlots[selectedDate].unified?.slots || []
   }

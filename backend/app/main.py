@@ -168,10 +168,17 @@ def refresh_ride_slots():
     global ride_slots_db
     
     existing_bookings = {}
-    for slot in ride_slots_db:
-        if slot.available_capacity < slot.total_capacity:
-            key = (slot.date, slot.start_time)
-            existing_bookings[key] = slot.total_capacity - slot.available_capacity
+    print(f"DEBUG: Processing {len(bookings_db)} bookings")
+    for booking in bookings_db:
+        key = (booking.date, booking.start_time)
+        total_quantity = sum(selection.quantity for selection in booking.card_selections)
+        print(f"DEBUG: Booking {booking.id} - Date: {booking.date}, Time: {booking.start_time}, Quantity: {total_quantity}")
+        if key in existing_bookings:
+            existing_bookings[key] += total_quantity
+        else:
+            existing_bookings[key] = total_quantity
+    
+    print(f"DEBUG: Existing bookings summary: {existing_bookings}")
     
     new_slots = generate_ride_slots_dynamic()
     
@@ -179,6 +186,7 @@ def refresh_ride_slots():
         key = (slot.date, slot.start_time)
         if key in existing_bookings:
             booked_count = existing_bookings[key]
+            print(f"DEBUG: Updating slot {slot.date} {slot.start_time} - reducing capacity from {slot.total_capacity} by {booked_count}")
             slot.available_capacity = max(0, slot.total_capacity - booked_count)
     
     ride_slots_db = new_slots
