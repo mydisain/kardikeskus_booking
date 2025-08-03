@@ -71,6 +71,7 @@ function ClientView() {
   const [isLoading, setIsLoading] = useState(false)
   const [bookingSuccess, setBookingSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isCardSelectionModalOpen, setIsCardSelectionModalOpen] = useState(false)
 
   useEffect(() => {
     fetchCardTypes()
@@ -137,6 +138,11 @@ function ClientView() {
     setSelectedSlot('')
     setCardSelections([])
     setError(null)
+  }
+
+  const handleAddRideAndCloseModal = () => {
+    addRideToSelection()
+    setIsCardSelectionModalOpen(false)
   }
 
   const removeRideFromSelection = (index: number) => {
@@ -277,7 +283,10 @@ function ClientView() {
                           key={slot.id}
                           variant={selectedSlot === slot.id ? "default" : "outline"}
                           size="sm"
-                          onClick={() => setSelectedSlot(slot.id)}
+                          onClick={() => {
+                            setSelectedSlot(slot.id)
+                            setIsCardSelectionModalOpen(true)
+                          }}
                           className="text-sm flex flex-col items-center justify-center p-2 h-16"
                         >
                           <div className="flex items-center">
@@ -293,10 +302,23 @@ function ClientView() {
                   </div>
                 )}
 
+              </CardContent>
+            </Card>
+            
+            <Dialog open={isCardSelectionModalOpen} onOpenChange={setIsCardSelectionModalOpen}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Vali kartide tüübid ja kogused</DialogTitle>
+                  <DialogDescription>
+                    {selectedSlot && getSelectedSlotDetails() && (
+                      <>Aeg: {getSelectedSlotDetails()?.start_time} - {getSelectedSlotDetails()?.end_time}</>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                
                 {selectedSlot && (
-                  <div>
-                    <Label>Vali kartide tüübid ja kogused</Label>
-                    <div className="space-y-3 mt-2">
+                  <div className="space-y-4">
+                    <div className="space-y-3">
                       {cardTypes.map(cardType => (
                         <div key={cardType.id} className="flex items-center justify-between p-3 border rounded-lg">
                           <div className="flex-1">
@@ -338,15 +360,15 @@ function ClientView() {
                     </div>
                     
                     {cardSelections.length > 0 && (
-                      <Button onClick={addRideToSelection} className="w-full mt-4">
+                      <Button onClick={handleAddRideAndCloseModal} className="w-full mt-4">
                         <Plus className="h-4 w-4 mr-2" />
                         Lisa sõit valikusse
                       </Button>
                     )}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </DialogContent>
+            </Dialog>
           </div>
 
           <div className="space-y-6">
