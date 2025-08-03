@@ -542,10 +542,14 @@ function AdminTimeSlotView() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [availableSlots, setAvailableSlots] = useState<any>({})
   const [bookings, setBookings] = useState<any[]>([])
+  const [cardTypes, setCardTypes] = useState<any[]>([])
+  const [selectedSlotBookings, setSelectedSlotBookings] = useState<any[]>([])
+  const [isBookingDetailsModalOpen, setIsBookingDetailsModalOpen] = useState(false)
 
   useEffect(() => {
     fetchAvailableSlots()
     fetchBookings()
+    fetchCardTypes()
   }, [selectedDate])
 
   const fetchAvailableSlots = async () => {
@@ -568,78 +572,158 @@ function AdminTimeSlotView() {
     }
   }
 
+  const fetchCardTypes = async () => {
+    try {
+      const response = await fetch(`${API_URL}/card-types`)
+      const data = await response.json()
+      setCardTypes(data)
+    } catch (error) {
+      console.error('Error fetching card types:', error)
+    }
+  }
+
   const getAvailableSlotsForDate = () => {
     if (!availableSlots[selectedDate]) return []
     return availableSlots[selectedDate].unified?.slots || []
   }
 
   const getBookingsForSlot = (slotId: string) => {
+    const slots = getAvailableSlotsForDate()
+    const slot = slots.find((s: any) => s.id === slotId)
+    if (!slot) return []
+    
     return bookings.filter(booking => 
-      booking.selected_rides && Array.isArray(booking.selected_rides) && 
-      booking.selected_rides.some((ride: any) => ride.slot_id === slotId)
+      booking.date === selectedDate && 
+      booking.start_time === slot.start_time
     )
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center">
-          <Calendar className="h-5 w-5 mr-2" />
-          Ajaühikute Ülevaade
-        </CardTitle>
-        <CardDescription>
-          Vaata broneeringuid ja vabad ajad
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <Label htmlFor="admin-date">Kuupäev</Label>
-          <Input
-            id="admin-date"
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-full max-w-xs"
-          />
-        </div>
-
-        {selectedDate && (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Calendar className="h-5 w-5 mr-2" />
+            Ajaühikute Ülevaade
+          </CardTitle>
+          <CardDescription>
+            Vaata broneeringuid ja vabad ajad
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div>
-            <Label>Ajaühikud</Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
-              {getAvailableSlotsForDate().map((slot: any) => {
-                const hasBookings = slot.available_capacity < slot.total_capacity
-                const slotBookings = getBookingsForSlot(slot.id)
-                
-                return (
-                  <div key={slot.id} className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-center">
-                      <Clock className="h-4 w-4 mr-1" />
-                      <span className="font-medium">{slot.start_time}</span>
-                    </div>
-                    <div className="text-center text-sm text-gray-600">
-                      {slot.available_capacity}/{slot.total_capacity}
-                    </div>
-                    {hasBookings && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full text-xs"
-                        onClick={() => {
-                          console.log('Show bookings for slot:', slot.id, slotBookings)
-                        }}
-                      >
-                        Broneeringud
-                      </Button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+            <Label htmlFor="admin-date">Kuupäev</Label>
+            <Input
+              id="admin-date"
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="w-full max-w-xs"
+            />
           </div>
-        )}
-      </CardContent>
-    </Card>
+
+          {selectedDate && (
+            <div>
+              <Label>Ajaühikud</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-2">
+                {getAvailableSlotsForDate().map((slot: any) => {
+                  const hasBookings = slot.available_capacity < slot.total_capacity
+                  const slotBookings = getBookingsForSlot(slot.id)
+                  
+                  return (
+                    <div key={slot.id} className="border rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-center">
+                        <Clock className="h-4 w-4 mr-1" />
+                        <span className="font-medium">{slot.start_time}</span>
+                      </div>
+                      <div className="text-center text-sm text-gray-600">
+                        {slot.available_capacity}/{slot.total_capacity}
+                      </div>
+                      {hasBookings && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full text-xs"
+                          onClick={() => {
+                            setSelectedSlotBookings(slotBookings)
+                            setIsBookingDetailsModalOpen(true)
+                          }}
+                        >
+                          Broneeringud
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+      <Dialog open={isBookingDetailsModalOpen} onOpenChange={setIsBookingDetailsModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Broneeringute üksikasjad</DialogTitle>
+            <DialogDescription>
+              Valitud ajaühiku broneeringud
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {selectedSlotBookings.map((booking) => (
+              <div key={booking.id} className="border rounded-lg p-4 space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-semibold text-lg">{booking.booking_number}</h3>
+                    <p className="text-sm text-gray-600">
+                      {booking.date} | {booking.start_time} - {booking.end_time}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-green-600">{booking.total_price}€</p>
+                    <p className="text-sm text-gray-600">{booking.status}</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="font-medium mb-2">Kliendi andmed</h4>
+                    <div className="space-y-1 text-sm">
+                      <p><span className="font-medium">Nimi:</span> {booking.customer_name}</p>
+                      <p><span className="font-medium">Email:</span> {booking.customer_email}</p>
+                      <p><span className="font-medium">Telefon:</span> {booking.customer_phone}</p>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-medium mb-2">Kartide valik</h4>
+                    <div className="space-y-2">
+                      {booking.card_selections.map((selection: any, selIndex: number) => {
+                        const cardType = cardTypes.find(ct => ct.id === selection.card_type_id)
+                        return (
+                          <div key={selIndex} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+                            <span>{cardType?.name || 'Tundmatu kart'}</span>
+                            <span className="font-medium">{selection.quantity}x</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+                
+                {booking.notes && (
+                  <div>
+                    <h4 className="font-medium mb-1">Märkused</h4>
+                    <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded">{booking.notes}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
