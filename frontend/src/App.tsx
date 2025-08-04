@@ -617,6 +617,13 @@ function AdminTimeSlotView() {
     )
   }
 
+  const getAllBookingsForCustomer = (customerEmail: string, bookingDate: string) => {
+    return bookings.filter(booking =>
+      booking.customer_email === customerEmail && 
+      booking.date === bookingDate
+    )
+  }
+
   const handleNewBookingCardQuantityChange = (cardTypeId: string, quantity: number) => {
     setNewBookingCardSelections(prev => {
       const existing = prev.find(s => s.card_type_id === cardTypeId)
@@ -746,7 +753,16 @@ function AdminTimeSlotView() {
                           variant="outline"
                           className="w-full text-xs mb-1"
                           onClick={() => {
-                            setSelectedSlotBookings(slotBookings)
+                            const allRelatedBookings: any[] = []
+                            for (const booking of slotBookings) {
+                              const customerBookings = getAllBookingsForCustomer(booking.customer_email, booking.date)
+                              for (const customerBooking of customerBookings) {
+                                if (!allRelatedBookings.find(b => b.id === customerBooking.id)) {
+                                  allRelatedBookings.push(customerBooking)
+                                }
+                              }
+                            }
+                            setSelectedSlotBookings(allRelatedBookings)
                             setIsBookingDetailsModalOpen(true)
                           }}
                         >
@@ -800,13 +816,27 @@ function AdminTimeSlotView() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <h4 className="font-medium mb-2">Kliendi andmed</h4>
                     <div className="space-y-1 text-sm">
                       <p><span className="font-medium">Nimi:</span> {booking.customer_name}</p>
                       <p><span className="font-medium">Email:</span> {booking.customer_email}</p>
                       <p><span className="font-medium">Telefon:</span> {booking.customer_phone}</p>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-medium mb-2">Sõidu aeg</h4>
+                    <div className="space-y-1 text-sm">
+                      {getAllBookingsForCustomer(booking.customer_email, booking.date)
+                        .sort((a, b) => a.start_time.localeCompare(b.start_time))
+                        .map((customerBooking, timeIndex) => (
+                          <div key={timeIndex} className={`p-2 rounded ${customerBooking.id === booking.id ? 'bg-blue-100 font-medium' : 'bg-gray-50'}`}>
+                            <span>{customerBooking.start_time}</span>
+                            {customerBooking.id === booking.id && <span className="ml-2 text-blue-600">(praegune)</span>}
+                          </div>
+                        ))}
                     </div>
                   </div>
                   
