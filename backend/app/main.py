@@ -168,6 +168,8 @@ def refresh_ride_slots():
     global ride_slots_db
     
     existing_bookings = {}
+    slot_id_mapping = {}
+    
     for booking in bookings_db:
         key = (booking.date, booking.start_time)
         total_quantity = sum(selection.quantity for selection in booking.card_selections)
@@ -175,6 +177,7 @@ def refresh_ride_slots():
             existing_bookings[key] += total_quantity
         else:
             existing_bookings[key] = total_quantity
+            slot_id_mapping[key] = booking.ride_slot_id
     
     new_slots = generate_ride_slots_dynamic()
     
@@ -183,6 +186,8 @@ def refresh_ride_slots():
         if key in existing_bookings:
             booked_count = existing_bookings[key]
             slot.available_capacity = max(0, slot.total_capacity - booked_count)
+            if key in slot_id_mapping:
+                slot.id = slot_id_mapping[key]
     
     ride_slots_db = new_slots
 
@@ -280,7 +285,18 @@ async def get_booking(booking_id: str):
         raise HTTPException(status_code=404, detail="Broneeringut ei leitud")
     
     customer = next(c for c in customers_db if c.id == booking.customer_id)
-    ride_slot = next(r for r in ride_slots_db if r.id == booking.ride_slot_id)
+    ride_slot = next((r for r in ride_slots_db if r.id == booking.ride_slot_id), None)
+    if not ride_slot:
+        ride_slot = RideSlot(
+            id=booking.ride_slot_id,
+            card_type_id="",
+            date=booking.date,
+            start_time=booking.start_time,
+            end_time=booking.end_time,
+            total_capacity=booking_settings_db.max_cards_per_slot,
+            available_capacity=0
+        )
+    
     card_type = next((c for c in card_types_db if c.id == ride_slot.card_type_id), None) if ride_slot.card_type_id else None
     
     return {
@@ -318,22 +334,23 @@ async def get_all_bookings():
     bookings_with_details = []
     for booking in bookings_db:
         customer = next(c for c in customers_db if c.id == booking.customer_id)
-        ride_slot = next(r for r in ride_slots_db if r.id == booking.ride_slot_id)
+        ride_slot = next((r for r in ride_slots_db if r.id == booking.ride_slot_id), None)
         
-        bookings_with_details.append({
-            "id": booking.id,
-            "booking_number": f"BR-{booking.id[:8].upper()}",
-            "date": booking.date.isoformat(),
-            "start_time": booking.start_time.strftime("%H:%M"),
-            "end_time": booking.end_time.strftime("%H:%M"),
-            "customer_name": f"{customer.first_name} {customer.last_name}",
-            "customer_email": customer.email,
-            "customer_phone": customer.phone,
-            "total_price": booking.total_price,
-            "status": booking.status,
-            "card_selections": booking.card_selections,
-            "notes": booking.notes
-        })
+        if ride_slot:
+                bookings_with_details.append({
+                "id": booking.id,
+                "booking_number": f"BR-{booking.id[:8].upper()}",
+                "date": booking.date.isoformat(),
+                "start_time": booking.start_time.strftime("%H:%M"),
+                "end_time": booking.end_time.strftime("%H:%M"),
+                "customer_name": f"{customer.first_name} {customer.last_name}",
+                "customer_email": customer.email,
+                "customer_phone": customer.phone,
+                "total_price": booking.total_price,
+                "status": booking.status,
+                "card_selections": booking.card_selections,
+                "notes": booking.notes
+                })
     
     return sorted(bookings_with_details, key=lambda x: x["date"], reverse=True)
 
